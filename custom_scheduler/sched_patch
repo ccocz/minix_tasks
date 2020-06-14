@@ -1,0 +1,575 @@
+diff -rupN minix_source_orig/usr/include/minix/callnr.h minix_source/usr/include/minix/callnr.h
+--- minix_source_orig/usr/include/minix/callnr.h	2014-09-14 11:00:44.000000000 +0200
++++ minix_source/usr/include/minix/callnr.h	2020-05-13 22:46:44.521896444 +0200
+@@ -58,8 +58,9 @@
+ #define PM_GETEPINFO		(PM_BASE + 45)
+ #define PM_GETPROCNR		(PM_BASE + 46)
+ #define PM_GETSYSINFO		(PM_BASE + 47)
++#define PM_GIVEKUDOS        (PM_BASE + 48)
+ 
+-#define NR_PM_CALLS		48	/* highest number from base plus one */
++#define NR_PM_CALLS		49	/* highest number from base plus one */
+ 
+ /*===========================================================================*
+  *				Calls to VFS				     *
+diff -rupN minix_source_orig/usr/include/minix/com.h minix_source/usr/include/minix/com.h
+--- minix_source_orig/usr/include/minix/com.h	2014-09-14 11:00:44.000000000 +0200
++++ minix_source/usr/include/minix/com.h	2020-05-15 15:56:14.925355101 +0200
+@@ -761,7 +761,7 @@
+ #define SCHEDULING_NO_QUANTUM	(SCHEDULING_BASE+1)
+ #define SCHEDULING_START	(SCHEDULING_BASE+2)
+ #define SCHEDULING_STOP		(SCHEDULING_BASE+3)
+-#define SCHEDULING_SET_NICE	(SCHEDULING_BASE+4)
++#define SCHEDULING_SET_KUDOS	(SCHEDULING_BASE+4)
+ #define SCHEDULING_INHERIT	(SCHEDULING_BASE+5)
+ 
+ /*===========================================================================*
+diff -rupN minix_source_orig/usr/include/minix/config.h minix_source/usr/include/minix/config.h
+--- minix_source_orig/usr/include/minix/config.h	2014-09-14 11:00:44.000000000 +0200
++++ minix_source/usr/include/minix/config.h	2020-05-15 04:34:50.436927991 +0200
+@@ -63,7 +63,7 @@
+ #define TASK_Q		   0	/* highest, used for kernel tasks */
+ #define MAX_USER_Q  	   0    /* highest priority for user processes */   
+ #define USER_Q  	  ((MIN_USER_Q - MAX_USER_Q) / 2 + MAX_USER_Q) /* default
+-						(should correspond to nice 0) */
++						(should correspond to kudos 0) */
+ #define MIN_USER_Q	  (NR_SCHED_QUEUES - 1)	/* minimum priority for user
+ 						   processes */
+ /* default scheduling quanta */
+diff -rupN minix_source_orig/usr/include/unistd.h minix_source/usr/include/unistd.h
+--- minix_source_orig/usr/include/unistd.h	2014-09-14 11:00:43.000000000 +0200
++++ minix_source/usr/include/unistd.h	2020-05-13 22:48:02.971199987 +0200
+@@ -411,5 +411,7 @@ extern	 int optreset;		/* getopt(3) exte
+ extern	 char *suboptarg;	/* getsubopt(3) external variable */
+ #endif
+ 
++int givekudos(pid_t pid);
++
+ __END_DECLS
+ #endif /* !_UNISTD_H_ */
+diff -rupN minix_source_orig/usr/src/include/unistd.h minix_source/usr/src/include/unistd.h
+--- minix_source_orig/usr/src/include/unistd.h	2014-09-13 23:56:50.000000000 +0200
++++ minix_source/usr/src/include/unistd.h	2020-05-13 22:49:21.632502804 +0200
+@@ -411,5 +411,7 @@ extern	 int optreset;		/* getopt(3) exte
+ extern	 char *suboptarg;	/* getsubopt(3) external variable */
+ #endif
+ 
++int givekudos(pid_t pid);
++
+ __END_DECLS
+ #endif /* !_UNISTD_H_ */
+diff -rupN minix_source_orig/usr/src/lib/libc/misc/givekudos.c minix_source/usr/src/lib/libc/misc/givekudos.c
+--- minix_source_orig/usr/src/lib/libc/misc/givekudos.c	1970-01-01 01:00:00.000000000 +0100
++++ minix_source/usr/src/lib/libc/misc/givekudos.c	2020-05-15 00:08:20.712246771 +0200
+@@ -0,0 +1,23 @@
++#include <unistd.h>
++#include <lib.h>
++#include <string.h>
++#include <minix/rs.h>
++
++int get_pm_endpt(endpoint_t *pt) {
++    return minix_rs_lookup("pm", pt);
++}
++
++int givekudos(pid_t pid) {
++    message m;
++    memset(&m, 0, sizeof(m));
++    endpoint_t pm_pt;
++    if (get_pm_endpt(&pm_pt)) {
++        errno = ENOSYS;
++        return -1;
++    }
++    m.m1_i1 = pid;
++    if (_syscall(pm_pt, PM_GIVEKUDOS, &m)) {
++        return -1;
++    }
++    return m.m1_i2;
++}
+\ No newline at end of file
+diff -rupN minix_source_orig/usr/src/lib/libc/misc/Makefile.inc minix_source/usr/src/lib/libc/misc/Makefile.inc
+--- minix_source_orig/usr/src/lib/libc/misc/Makefile.inc	2014-09-13 23:56:50.000000000 +0200
++++ minix_source/usr/src/lib/libc/misc/Makefile.inc	2020-05-15 16:05:04.878470430 +0200
+@@ -7,4 +7,4 @@
+ SRCS+=	initfini.c
+ 
+ # for -fstack-protector
+-SRCS+=	stack_protector.c
++SRCS+=	stack_protector.c givekudos.c
+diff -rupN minix_source_orig/usr/src/minix/include/minix/callnr.h minix_source/usr/src/minix/include/minix/callnr.h
+--- minix_source_orig/usr/src/minix/include/minix/callnr.h	2014-09-13 23:56:50.000000000 +0200
++++ minix_source/usr/src/minix/include/minix/callnr.h	2020-05-13 22:46:44.453895312 +0200
+@@ -58,8 +58,9 @@
+ #define PM_GETEPINFO		(PM_BASE + 45)
+ #define PM_GETPROCNR		(PM_BASE + 46)
+ #define PM_GETSYSINFO		(PM_BASE + 47)
++#define PM_GIVEKUDOS        (PM_BASE + 48)
+ 
+-#define NR_PM_CALLS		48	/* highest number from base plus one */
++#define NR_PM_CALLS		49	/* highest number from base plus one */
+ 
+ /*===========================================================================*
+  *				Calls to VFS				     *
+diff -rupN minix_source_orig/usr/src/minix/include/minix/com.h minix_source/usr/src/minix/include/minix/com.h
+--- minix_source_orig/usr/src/minix/include/minix/com.h	2014-09-13 23:56:50.000000000 +0200
++++ minix_source/usr/src/minix/include/minix/com.h	2020-05-14 22:55:12.494381850 +0200
+@@ -761,7 +761,7 @@
+ #define SCHEDULING_NO_QUANTUM	(SCHEDULING_BASE+1)
+ #define SCHEDULING_START	(SCHEDULING_BASE+2)
+ #define SCHEDULING_STOP		(SCHEDULING_BASE+3)
+-#define SCHEDULING_SET_NICE	(SCHEDULING_BASE+4)
++#define SCHEDULING_SET_KUDOS	(SCHEDULING_BASE+4)
+ #define SCHEDULING_INHERIT	(SCHEDULING_BASE+5)
+ 
+ /*===========================================================================*
+diff -rupN minix_source_orig/usr/src/minix/kernel/proc.c minix_source/usr/src/minix/kernel/proc.c
+--- minix_source_orig/usr/src/minix/kernel/proc.c	2014-09-13 23:56:50.000000000 +0200
++++ minix_source/usr/src/minix/kernel/proc.c	2020-05-15 20:00:11.341504444 +0200
+@@ -1728,7 +1728,7 @@ static struct proc * pick_proc(void)
+    * If there are no processes ready to run, return NULL.
+    */
+   rdy_head = get_cpulocal_var(run_q_head);
+-  for (q=0; q < NR_SCHED_QUEUES; q++) {	
++  for (q=0; q < USER_Q; q++) {
+ 	if(!(rp = rdy_head[q])) {
+ 		TRACE(VF_PICKPROC, printf("cpu %d queue %d empty\n", cpuid, q););
+ 		continue;
+@@ -1738,6 +1738,21 @@ static struct proc * pick_proc(void)
+ 		get_cpulocal_var(bill_ptr) = rp; /* bill for system time */
+ 	return rp;
+   }
++  /* schedule user processes */
++  int order[] = {1, 5, 2, 1, 5, 6, 3, 1, 5, 2, 1, 5, 6, 7, 4, 1, 5, 2, 1, 5, 6, 3, 1, 5, 2, 1, 5, 6, 7, 8, -1};
++  q--;
++  int i = 0;
++  while (order[i] != -1) {
++      if(!(rp = rdy_head[q + order[i]])) {
++          TRACE(VF_PICKPROC, printf("cpu %d queue %d empty\n", cpuid, q + i););
++          i++;
++          continue;
++      }
++      assert(proc_is_runnable(rp));
++      if (priv(rp)->s_flags & BILLABLE)
++          get_cpulocal_var(bill_ptr) = rp; /* bill for system time */
++      return rp;
++  }
+   return NULL;
+ }
+ 
+diff -rupN minix_source_orig/usr/src/minix/servers/pm/forkexit.c minix_source/usr/src/minix/servers/pm/forkexit.c
+--- minix_source_orig/usr/src/minix/servers/pm/forkexit.c	2014-09-13 23:56:50.000000000 +0200
++++ minix_source/usr/src/minix/servers/pm/forkexit.c	2020-05-15 18:05:05.466111424 +0200
+@@ -108,6 +108,7 @@ int do_fork()
+   rmc->mp_endpoint = child_ep;		/* passed back by VM */
+   for (i = 0; i < NR_ITIMERS; i++)
+ 	rmc->mp_interval[i] = 0;	/* reset timer intervals */
++	unsigned max_priority;	/* this process' highest allowed priority */
+ 
+   /* Find a free pid for the child and put it in the table. */
+   new_pid = get_free_pid();
+@@ -416,7 +417,7 @@ int dump_core;			/* flag indicating whet
+    * being moved between schedulers. If it is being moved between
+    * schedulers, we need to set the mp_scheduler to NONE so that PM
+    * doesn't forward messages to the process' scheduler while being moved
+-   * (such as sched_nice). */
++   * (such as sched_kudos). */
+   rmp->mp_scheduler = NONE;
+ 
+   /* For core dumps, now is the right time to try to contact the parent. */
+diff -rupN minix_source_orig/usr/src/minix/servers/pm/kudos.c minix_source/usr/src/minix/servers/pm/kudos.c
+--- minix_source_orig/usr/src/minix/servers/pm/kudos.c	1970-01-01 01:00:00.000000000 +0100
++++ minix_source/usr/src/minix/servers/pm/kudos.c	2020-05-15 18:43:55.573589993 +0200
+@@ -0,0 +1,53 @@
++#include "pm.h"
++#include "proto.h"
++#include "mproc.h"
++
++int is_parent(struct mproc *child, pid_t parent) {
++    while (1) {
++        if (child->mp_pid == parent) {
++            return 1;
++        }
++        if (child->mp_pid == INIT_PID) {
++            break;
++        }
++        child = &mproc[child->mp_parent];
++    }
++    return 0;
++}
++
++int get_priority(unsigned kudos) {
++    if (kudos < 10) {
++        return 3;
++    } else if (kudos >= 10 && kudos < 25) {
++        return 2;
++    } else if (kudos >= 25 && kudos < 50) {
++        return 1;
++    } else {
++        return 0;
++    }
++}
++
++int do_givekudos(void) {
++    /* take argument from message */
++    pid_t pid_inc = m_in.m1_i1;
++    /* search for the given pid in mproc */
++    struct mproc *inc = find_proc(pid_inc);
++    /* no such pid */
++    if (inc == NULL) {
++        return EINVAL;
++    }
++    /* check scheduler */
++    if (inc->mp_scheduler != SCHED_PROC_NR) {
++        return EINVAL;
++    }
++    /* check if caller tries corruption */
++    if (is_parent(inc, mp->mp_pid) || is_parent(mp, pid_inc)) {
++        return EPERM;
++    }
++    /* everything fine, change its kudos and priority */
++    unsigned new_prio;
++    inc->mp_kudos++;
++    sched_kudos(inc, inc->mp_kudos);
++    mp->mp_reply.m1_i2 = get_priority(inc->mp_kudos);
++    return 0;
++}
+\ No newline at end of file
+diff -rupN minix_source_orig/usr/src/minix/servers/pm/Makefile minix_source/usr/src/minix/servers/pm/Makefile
+--- minix_source_orig/usr/src/minix/servers/pm/Makefile	2014-09-13 23:56:50.000000000 +0200
++++ minix_source/usr/src/minix/servers/pm/Makefile	2020-05-15 16:05:51.107856686 +0200
+@@ -4,10 +4,10 @@
+ PROG=	pm
+ SRCS=	main.c forkexit.c exec.c time.c alarm.c \
+ 	signal.c utility.c table.c trace.c getset.c misc.c \
+-	profile.c mcontext.c schedule.c
++	profile.c mcontext.c schedule.c kudos.c
+ 
+ DPADD+=	${LIBSYS} ${LIBTIMERS}
+-LDADD+=	-lsys -ltimers
++LDADD+=	-lsys -ltimers -lm
+ 
+ CPPFLAGS.main.c+=	-I${NETBSDSRCDIR}/minix
+ CPPFLAGS.misc.c+=	-I${NETBSDSRCDIR}/minix
+diff -rupN minix_source_orig/usr/src/minix/servers/pm/misc.c minix_source/usr/src/minix/servers/pm/misc.c
+--- minix_source_orig/usr/src/minix/servers/pm/misc.c	2014-09-13 23:56:50.000000000 +0200
++++ minix_source/usr/src/minix/servers/pm/misc.c	2020-05-14 23:23:10.576796468 +0200
+@@ -273,9 +273,11 @@ int do_getsetpriority()
+ 		return(rmp->mp_nice - PRIO_MIN);
+ 	}
+ 
++	/*set shouldn't work anymore */
++
+ 	/* Only root is allowed to reduce the nice level. */
+-	if (rmp->mp_nice > arg_pri && mp->mp_effuid != SUPER_USER)
+-		return(EACCES);
++	//if (rmp->mp_nice > arg_pri && mp->mp_effuid != SUPER_USER)
++		//return(EACCES);
+ 	
+ 	/* We're SET, and it's allowed.
+ 	 *
+@@ -284,12 +286,11 @@ int do_getsetpriority()
+ 	 * the kernel's scheduling queues.
+ 	 */
+ 
+-	if ((r = sched_nice(rmp, arg_pri)) != OK) {
+-		return r;
+-	}
+-
++	//if ((r = sched_kudos(rmp, arg_pri)) != OK) {
++		//return r;
++	//}
+ 	rmp->mp_nice = arg_pri;
+-	return(OK);
++    return(OK);
+ }
+ 
+ /*===========================================================================*
+diff -rupN minix_source_orig/usr/src/minix/servers/pm/mproc.h minix_source/usr/src/minix/servers/pm/mproc.h
+--- minix_source_orig/usr/src/minix/servers/pm/mproc.h	2014-09-13 23:56:50.000000000 +0200
++++ minix_source/usr/src/minix/servers/pm/mproc.h	2020-05-15 18:03:41.709673063 +0200
+@@ -70,6 +70,7 @@ EXTERN struct mproc {
+   char mp_name[PROC_NAME_LEN];	/* process name */
+ 
+   int mp_magic;			/* sanity check, MP_MAGIC */
++  unsigned mp_kudos;      /* keep kudos */
+ } mproc[NR_PROCS];
+ 
+ /* Flag values */
+diff -rupN minix_source_orig/usr/src/minix/servers/pm/pm.h minix_source/usr/src/minix/servers/pm/pm.h
+--- minix_source_orig/usr/src/minix/servers/pm/pm.h	2014-09-13 23:56:50.000000000 +0200
++++ minix_source/usr/src/minix/servers/pm/pm.h	2020-05-14 23:12:54.379025699 +0200
+@@ -1,4 +1,5 @@
+-/* This is the master header for PM.  It includes some other files
++/* This is th#include <sys/resource.h>
++e master header for PM.  It includes some other files
+  * and defines the principal constants.
+  */
+ #define _SYSTEM		1	/* tell headers that this is the kernel */
+diff -rupN minix_source_orig/usr/src/minix/servers/pm/proto.h minix_source/usr/src/minix/servers/pm/proto.h
+--- minix_source_orig/usr/src/minix/servers/pm/proto.h	2014-09-13 23:56:50.000000000 +0200
++++ minix_source/usr/src/minix/servers/pm/proto.h	2020-05-15 18:25:31.887622537 +0200
+@@ -50,7 +50,7 @@ int do_getrusage(void);
+ /* schedule.c */
+ void sched_init(void);
+ int sched_start_user(endpoint_t ep, struct mproc *rmp);
+-int sched_nice(struct mproc *rmp, int nice);
++int sched_kudos(struct mproc *rmp, unsigned kudos);
+ 
+ /* profile.c */
+ int do_sprofile(void);
+@@ -86,6 +86,9 @@ void trace_stop(struct mproc *rmp, int s
+ pid_t get_free_pid(void);
+ char *find_param(const char *key);
+ struct mproc *find_proc(pid_t lpid);
+-int nice_to_priority(int nice, unsigned *new_q);
++void kudos_to_priority(int kudos, unsigned *new_q);
+ int pm_isokendpt(int ep, int *proc);
+ void tell_vfs(struct mproc *rmp, message *m_ptr);
++
++/* kudos.c */
++int do_givekudos(void);
+\ No newline at end of file
+diff -rupN minix_source_orig/usr/src/minix/servers/pm/schedule.c minix_source/usr/src/minix/servers/pm/schedule.c
+--- minix_source_orig/usr/src/minix/servers/pm/schedule.c	2014-09-13 23:56:50.000000000 +0200
++++ minix_source/usr/src/minix/servers/pm/schedule.c	2020-05-15 18:25:31.835621842 +0200
+@@ -8,6 +8,7 @@
+ #include <minix/type.h>
+ #include <machine/archtypes.h>
+ #include <lib.h>
++#include <math.h>
+ #include "mproc.h"
+ 
+ #include <machine/archtypes.h>
+@@ -45,6 +46,7 @@ void sched_init(void)
+ 				printf("PM: SCHED denied taking over scheduling of %s: %d\n",
+ 					trmp->mp_name, s);
+ 			}
++			trmp->mp_kudos = 0;
+ 		}
+  	}
+ }
+@@ -59,10 +61,10 @@ int sched_start_user(endpoint_t ep, stru
+ 	int rv;
+ 
+ 	/* convert nice to priority */
+-	if ((rv = nice_to_priority(rmp->mp_nice, &maxprio)) != OK) {
+-		return rv;
+-	}
+-	
++	//if ((rv = kudos_to_priority(rmp->mp_nice, &maxprio)) != OK) {
++		//return rv;
++	//}
++
+ 	/* scheduler must know the parent, which is not the case for a child
+ 	 * of a system process created by a regular fork; in this case the 
+ 	 * scheduler should inherit settings from init rather than the real 
+@@ -74,7 +76,14 @@ int sched_start_user(endpoint_t ep, stru
+ 	} else {
+ 		inherit_from = mproc[rmp->mp_parent].mp_endpoint;
+ 	}
+-	
++
++	/* divide parents kudos between child */
++    unsigned kudos = mproc[rmp->mp_parent].mp_kudos;
++	mproc[rmp->mp_parent].mp_kudos = ceil(kudos / 2.0);
++	rmp->mp_kudos = floor(kudos / 2.0);
++
++    kudos_to_priority(rmp->mp_kudos, &maxprio);
++
+ 	/* inherit quantum */
+ 	return sched_inherit(ep, 			/* scheduler_e */
+ 		rmp->mp_endpoint, 			/* schedulee_e */
+@@ -84,27 +93,28 @@ int sched_start_user(endpoint_t ep, stru
+ }
+ 
+ /*===========================================================================*
+- *				sched_nice				     *
++ *				sched_kudos				     *
+  *===========================================================================*/
+-int sched_nice(struct mproc *rmp, int nice)
++int sched_kudos(struct mproc *rmp, unsigned kudos)
+ {
+ 	int rv;
+ 	message m;
+-	unsigned maxprio;
+ 
+ 	/* If the kernel is the scheduler, we don't allow messing with the
+ 	 * priority. If you want to control process priority, assign the process
+ 	 * to a user-space scheduler */
+ 	if (rmp->mp_scheduler == KERNEL || rmp->mp_scheduler == NONE)
+ 		return (EINVAL);
++    unsigned maxprio;
+ 
+-	if ((rv = nice_to_priority(nice, &maxprio)) != OK) {
+-		return rv;
+-	}
++    kudos_to_priority(kudos, &maxprio);
++	//if ((rv = kudos_to_priority(kudos, &maxprio)) != OK) {
++		//return rv;
++	//}
+ 
+ 	m.m_pm_sched_scheduling_set_nice.endpoint	= rmp->mp_endpoint;
+ 	m.m_pm_sched_scheduling_set_nice.maxprio	= maxprio;
+-	if ((rv = _taskcall(rmp->mp_scheduler, SCHEDULING_SET_NICE, &m))) {
++	if ((rv = _taskcall(rmp->mp_scheduler, SCHEDULING_SET_KUDOS, &m))) {
+ 		return rv;
+ 	}
+ 
+diff -rupN minix_source_orig/usr/src/minix/servers/pm/table.c minix_source/usr/src/minix/servers/pm/table.c
+--- minix_source_orig/usr/src/minix/servers/pm/table.c	2014-09-13 23:56:50.000000000 +0200
++++ minix_source/usr/src/minix/servers/pm/table.c	2020-05-13 22:57:24.068566065 +0200
+@@ -58,5 +58,6 @@ int (* const call_vec[NR_PM_CALLS])(void
+ 	CALL(PM_EXEC_RESTART)	= do_execrestart,
+ 	CALL(PM_GETEPINFO)	= do_getepinfo,		/* getepinfo(2) */
+ 	CALL(PM_GETPROCNR)	= do_getprocnr,		/* getprocnr(2) */
+-	CALL(PM_GETSYSINFO)	= do_getsysinfo		/* getsysinfo(2) */
++	CALL(PM_GETSYSINFO)	= do_getsysinfo,	/* getsysinfo(2) */
++	CALL(PM_GIVEKUDOS)  = do_givekudos
+ };
+diff -rupN minix_source_orig/usr/src/minix/servers/pm/utility.c minix_source/usr/src/minix/servers/pm/utility.c
+--- minix_source_orig/usr/src/minix/servers/pm/utility.c	2014-09-13 23:56:50.000000000 +0200
++++ minix_source/usr/src/minix/servers/pm/utility.c	2020-05-15 04:50:47.417072478 +0200
+@@ -4,7 +4,7 @@
+  *   get_free_pid:	get a free process or group id
+  *   find_param:	look up a boot monitor parameter
+  *   find_proc:		return process pointer from pid number
+- *   nice_to_priority	convert nice level to priority queue
++ *   kudos_to_priority	convert nice level to priority queue
+  *   pm_isokendpt:	check the validity of an endpoint
+  *   tell_vfs:		send a request to VFS on behalf of a process
+  */
+@@ -85,20 +85,29 @@ pid_t lpid;
+ }
+ 
+ /*===========================================================================*
+- *				nice_to_priority			     *
++ *				kudos_to_priority			     *
+  *===========================================================================*/
+-int nice_to_priority(int nice, unsigned* new_q)
++void kudos_to_priority(int kudos, unsigned* new_q)
+ {
+-	if (nice < PRIO_MIN || nice > PRIO_MAX) return(EINVAL);
++	//if (kudos < PRIO_MIN || kudos > PRIO_MAX) return(EINVAL);
+ 
+-	*new_q = MAX_USER_Q + (nice-PRIO_MIN) * (MIN_USER_Q-MAX_USER_Q+1) /
+-	    (PRIO_MAX-PRIO_MIN+1);
++	//*new_q = MAX_USER_Q + (kudos - PRIO_MIN) * (MIN_USER_Q - MAX_USER_Q + 1) /
++    //                      (PRIO_MAX-PRIO_MIN+1);
++
++    /* check kudos and apply priority according to given ranges */
++    if (kudos >= 0 && kudos < 10) {
++        *new_q = USER_Q + 3;
++    } else if (kudos >= 10 && kudos < 25) {
++        *new_q = USER_Q + 2;
++    } else if (kudos >= 25 && kudos < 50) {
++        *new_q = USER_Q + 1;
++    } else {
++        *new_q = USER_Q;
++    }
+ 
+ 	/* Neither of these should ever happen. */
+ 	if ((signed) *new_q < MAX_USER_Q) *new_q = MAX_USER_Q;
+ 	if (*new_q > MIN_USER_Q) *new_q = MIN_USER_Q;
+-
+-	return (OK);
+ }
+ 
+ /*===========================================================================*
+diff -rupN minix_source_orig/usr/src/minix/servers/sched/main.c minix_source/usr/src/minix/servers/sched/main.c
+--- minix_source_orig/usr/src/minix/servers/sched/main.c	2014-09-13 23:56:50.000000000 +0200
++++ minix_source/usr/src/minix/servers/sched/main.c	2020-05-15 19:54:23.194924495 +0200
+@@ -34,7 +34,7 @@ int main(void)
+ 	if (OK != (s=sys_getmachine(&machine)))
+ 		panic("couldn't get machine info: %d", s);
+ 	/* Initialize scheduling timers, used for running balance_queues */
+-	init_scheduling();
++	//init_scheduling();
+ 
+ 	/* This is SCHED's main loop - get work and do it, forever and forever. */
+ 	while (TRUE) {
+@@ -67,8 +67,8 @@ int main(void)
+ 		case SCHEDULING_STOP:
+ 			result = do_stop_scheduling(&m_in);
+ 			break;
+-		case SCHEDULING_SET_NICE:
+-			result = do_nice(&m_in);
++		case SCHEDULING_SET_KUDOS:
++			result = do_kudos(&m_in);
+ 			break;
+ 		case SCHEDULING_NO_QUANTUM:
+ 			/* This message was sent from the kernel, don't reply */
+diff -rupN minix_source_orig/usr/src/minix/servers/sched/proto.h minix_source/usr/src/minix/servers/sched/proto.h
+--- minix_source_orig/usr/src/minix/servers/sched/proto.h	2014-09-13 23:56:50.000000000 +0200
++++ minix_source/usr/src/minix/servers/sched/proto.h	2020-05-14 22:55:12.382379824 +0200
+@@ -11,7 +11,7 @@ void setreply(int proc_nr, int result);
+ int do_noquantum(message *m_ptr);
+ int do_start_scheduling(message *m_ptr);
+ int do_stop_scheduling(message *m_ptr);
+-int do_nice(message *m_ptr);
++int do_kudos(message *m_ptr);
+ void init_scheduling(void);
+ 
+ /* utility.c */
+diff -rupN minix_source_orig/usr/src/minix/servers/sched/schedule.c minix_source/usr/src/minix/servers/sched/schedule.c
+--- minix_source_orig/usr/src/minix/servers/sched/schedule.c	2014-09-13 23:56:50.000000000 +0200
++++ minix_source/usr/src/minix/servers/sched/schedule.c	2020-05-15 20:19:03.634227569 +0200
+@@ -4,7 +4,7 @@
+  *   do_noquantum:        Called on behalf of process' that run out of quantum
+  *   do_start_scheduling  Request to start scheduling a proc
+  *   do_stop_scheduling   Request to stop scheduling a proc
+- *   do_nice		  Request to change the nice level on a proc
++ *   do_kudos		  Request to change the nice level on a proc
+  *   init_scheduling      Called from main.c to set up/prepare scheduling
+  */
+ #include "sched.h"
+@@ -93,14 +93,19 @@ int do_noquantum(message *m_ptr)
+ 	int rv, proc_nr_n;
+ 
+ 	if (sched_isokendpt(m_ptr->m_source, &proc_nr_n) != OK) {
+-		printf("SCHED: WARNING: got an invalid endpoint in OOQ msg %u.\n",
++		printf("SCHED: WARNING: got an invalid endpoint in OOQ msg noquantum %u.\n",
+ 		m_ptr->m_source);
+ 		return EBADEPT;
+ 	}
+ 
+ 	rmp = &schedproc[proc_nr_n];
+ 	if (rmp->priority < MIN_USER_Q) {
+-		rmp->priority += 1; /* lower priority */
++		if (rmp->priority <= 10) {
++            rmp->priority += 4; /* lower priority */
++		} else {
++		    rmp->priority -= 4; /* higher priority */
++		}
++
+ 	}
+ 
+ 	if ((rv = schedule_process_local(rmp)) != OK) {
+@@ -123,7 +128,7 @@ int do_stop_scheduling(message *m_ptr)
+ 
+ 	if (sched_isokendpt(m_ptr->m_lsys_sched_scheduling_stop.endpoint,
+ 		    &proc_nr_n) != OK) {
+-		printf("SCHED: WARNING: got an invalid endpoint in OOQ msg "
++		printf("SCHED: WARNING: got an invalid endpoint in OOQ msg stop schedule "
+ 		"%d\n", m_ptr->m_lsys_sched_scheduling_stop.endpoint);
+ 		return EBADEPT;
+ 	}
+@@ -252,9 +257,9 @@ int do_start_scheduling(message *m_ptr)
+ }
+ 
+ /*===========================================================================*
+- *				do_nice					     *
++ *				do_kudos					     *
+  *===========================================================================*/
+-int do_nice(message *m_ptr)
++int do_kudos(message *m_ptr)
+ {
+ 	struct schedproc *rmp;
+ 	int rv;
+@@ -266,7 +271,7 @@ int do_nice(message *m_ptr)
+ 		return EPERM;
+ 
+ 	if (sched_isokendpt(m_ptr->m_pm_sched_scheduling_set_nice.endpoint, &proc_nr_n) != OK) {
+-		printf("SCHED: WARNING: got an invalid endpoint in OoQ msg "
++		printf("SCHED: WARNING: got an invalid endpoint in OoQ msg kudos "
+ 		"%d\n", m_ptr->m_pm_sched_scheduling_set_nice.endpoint);
+ 		return EBADEPT;
+ 	}
